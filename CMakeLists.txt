@@ -66,6 +66,7 @@ FetchContent_MakeAvailable(curlcpp)
 add_executable(Analog-Key
 	main.cpp
 	AuthManager.cpp
+	ThreadPool.cpp
 )
 
 target_link_libraries(Analog-Key PRIVATE
