@@ -21,7 +21,7 @@ public:
 	struct Thread: public std::jthread {
 		http_t http;
 		
-		std::string active_job;
+		std::string job;
 		std::string status;
 	};
 	

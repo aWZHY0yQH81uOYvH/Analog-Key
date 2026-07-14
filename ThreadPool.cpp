@@ -25,7 +25,7 @@ ThreadPool::ThreadPool(int n) {
 				
 				job(*self);
 				
-				self->active_job.clear();
+				self->job.clear();
 				self->status.clear();
 				active_jobs--;
 			}

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "HTTP.hpp"
-#include "AuthManager.hpp"
+#include "Auth.hpp"
 #include "ThreadPool.hpp"
 #include "Database.hpp"
 
@@ -12,9 +12,10 @@ public:
 	DigiKey(std::shared_ptr<ThreadPool> pool, std::shared_ptr<Database> db);
 	
 	void update_categories();
+	void load_categories();
 	
 protected:
-	AuthManager auth;
+	Auth auth;
 	
 	std::shared_ptr<ThreadPool> pool;
 	std::shared_ptr<Database> db;

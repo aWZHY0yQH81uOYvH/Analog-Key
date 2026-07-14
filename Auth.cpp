@@ -1,4 +1,4 @@
-#include "AuthManager.hpp"
+#include "Auth.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -12,7 +12,7 @@
 using nlohmann::json;
 namespace fs = std::filesystem;
 
-AuthManager::AuthManager() {
+Auth::Auth() {
 	const char *home = std::getenv("HOME");
 	if(!home) throw std::runtime_error("$HOME not set");
 	
@@ -20,7 +20,7 @@ AuthManager::AuthManager() {
 	json_path /= ".analog_key_tokens.json";
 }
 
-void AuthManager::post_token(http_t http, const std::string &body) {
+void Auth::post_token(http_t http, const std::string &body) {
 	json j = http->request_json(HTTP::POST, "https://api.digikey.com/v1/oauth2/token", body);
 	
 	access_token = j.at("access_token").get<std::string>();
@@ -34,7 +34,7 @@ void AuthManager::post_token(http_t http, const std::string &body) {
 	save_to_disk();
 }
 
-void AuthManager::authorize(http_t http) {
+void Auth::authorize(http_t http) {
 	std::cout << "Perform Digi-Key API authorization\n";
 	
 	const char *client_id_env = std::getenv("DIGIKEY_CLIENT_ID");
@@ -74,7 +74,7 @@ void AuthManager::authorize(http_t http) {
 	post_token(http, body);
 }
 
-void AuthManager::refresh(http_t http) {
+void Auth::refresh(http_t http) {
 	assert(tokens_valid);
 	
 	std::string body = std::format("client_id={}&client_secret={}&refresh_token={}&grant_type=refresh_token",
@@ -86,7 +86,7 @@ void AuthManager::refresh(http_t http) {
 	post_token(http, body);
 }
 
-std::string AuthManager::get_access_token(http_t http) {
+std::string Auth::get_access_token(http_t http) {
 	std::unique_lock<std::mutex> lock{mutex};
 
 	// Try to load from disk
@@ -103,7 +103,7 @@ std::string AuthManager::get_access_token(http_t http) {
 	return "Bearer " + access_token;
 }
 
-std::vector<std::string> AuthManager::get_headers(http_t http) {
+std::vector<std::string> Auth::get_headers(http_t http) {
 	auto token = get_access_token(http);
 	std::unique_lock<std::mutex> lock{mutex};
 	return {
@@ -113,7 +113,7 @@ std::vector<std::string> AuthManager::get_headers(http_t http) {
 	};
 }
 
-void AuthManager::save_to_disk() const {
+void Auth::save_to_disk() const {
 	if(!tokens_valid) return;
 
 	json j;
@@ -134,7 +134,7 @@ void AuthManager::save_to_disk() const {
 	} catch (...) {}
 }
 
-void AuthManager::load_from_disk() {
+void Auth::load_from_disk() {
 	std::ifstream in{json_path};
 	if(!in) return;
 

@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 
 find_package(CURL REQUIRED)
+find_package(OpenGL REQUIRED)
 
 # Download build some dependencies
 include(FetchContent)
@@ -63,7 +64,7 @@ FetchContent_MakeAvailable(json)
 FetchContent_Declare(
 	sqlitecpp
 	GIT_REPOSITORY https://github.com/SRombauts/SQLiteCpp.git
-	GIT_TAG        3.3.3
+	GIT_TAG        master
 	GIT_SHALLOW    TRUE
 )
 
@@ -73,15 +74,17 @@ FetchContent_MakeAvailable(sqlitecpp)
 add_executable(Analog-Key
 	main.cpp
 	HTTP.cpp
-	AuthManager.cpp
+	Auth.cpp
 	ThreadPool.cpp
 	DigiKey.cpp
 	Database.cpp
+	GUI.cpp
 )
 
 target_link_libraries(Analog-Key PRIVATE
 	CURL::libcurl
 	imgui
+	OpenGL::GL
 	SQLiteCpp
 )
 
@@ -91,4 +94,8 @@ target_compile_options(Analog-Key PRIVATE
 
 target_link_options(Analog-Key PRIVATE
     -fsanitize=address
+)
+
+target_compile_definitions(Analog-Key PRIVATE
+	GL_SILENCE_DEPRECATION
 )

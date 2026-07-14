@@ -8,9 +8,9 @@
 #include <mutex>
 #include <filesystem>
 
-class AuthManager {
+class Auth {
 public:
-	AuthManager();
+	Auth();
 
 	std::string get_access_token(http_t http);
 	std::vector<std::string> get_headers(http_t http);
