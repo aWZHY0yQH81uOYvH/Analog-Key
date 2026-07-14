@@ -8,11 +8,15 @@
 #include <functional>
 #include <string>
 #include <memory>
+#include <atomic>
 
 class ThreadPool {
 public:
 	ThreadPool(int n = 4);
 	~ThreadPool();
+	
+	ThreadPool(const ThreadPool&) = delete;
+	ThreadPool &operator=(const ThreadPool&) = delete;
 	
 	struct Thread: public std::jthread {
 		http_t http;
@@ -34,4 +38,5 @@ protected:
 	std::mutex mutex;
 	std::condition_variable cond;
 	std::deque<job_t> jobs;
+	std::atomic<int> active_jobs;
 };

@@ -1,7 +1,6 @@
 #include "AuthManager.hpp"
 
 #include <nlohmann/json.hpp>
-#include <curl_easy.h>
 
 #include <fstream>
 #include <iostream>
@@ -22,22 +21,10 @@ AuthManager::AuthManager() {
 }
 
 void AuthManager::post_token(http_t http, const std::string &body) {
-	http->add<CURLOPT_URL>("https://api.digikey.com/v1/oauth2/token");
-	http->add<CURLOPT_POST>(1L);
-	http->add<CURLOPT_POSTFIELDS>(body.c_str());
-	http->add<CURLOPT_TIMEOUT>(15L);
-	http->perform();
-	
-	long code = http->get_info<CURLINFO_RESPONSE_CODE>().get();
-	if(code < 200 || code >= 300)
-		throw std::runtime_error(std::format("Received response code {} during auth: {}\n", code, http->response()));
-	
-	json j = http->response_json();
+	json j = http->request_json(HTTP::POST, "https://api.digikey.com/v1/oauth2/token", body);
 	
 	access_token = j.at("access_token").get<std::string>();
 	refresh_token = j.at("refresh_token").get<std::string>();
-	http->escape(access_token);
-	http->escape(refresh_token);
 
 	const int expires_in = j.at("expires_in").get<int>();
 	expires_at = std::chrono::system_clock::now() +
@@ -57,7 +44,6 @@ void AuthManager::authorize(http_t http) {
 		std::cout << "\tEnter Digi-Key client ID: ";
 		std::cin >> client_id;
 	}
-	http->escape(client_id);
 	
 	const char *client_secret_env = std::getenv("DIGIKEY_CLIENT_SECRET");
 	if(client_secret_env)
@@ -66,26 +52,23 @@ void AuthManager::authorize(http_t http) {
 		std::cout << "\tEnter Digi-Key client secret: ";
 		std::cin >> client_secret;
 	}
-	http->escape(client_secret);
 	
-	std::string redirect_uri = "https://localhost";
-	http->escape(redirect_uri);
+	const std::string redirect_uri = "https://localhost";
 	
 	std::string auth_url = std::format("https://api.digikey.com/v1/oauth2/authorize?response_type=code&client_id={}&redirect_uri={}",
-		client_id,
-		redirect_uri
+		http->escape(client_id),
+		http->escape(redirect_uri)
 	);
 	
 	std::cout << std::format("Go to this URL in a browser and paste the ?code=... value here\n\tURL: {}\n\tCode: ", auth_url);
 	std::string code;
 	std::cin >> code;
-	http->escape(code);
 	
 	std::string body = std::format("code={}&client_id={}&client_secret={}&redirect_uri={}&grant_type=authorization_code",
-		code,
-		client_id,
-		client_secret,
-		redirect_uri
+		http->escape(code),
+		http->escape(client_id),
+		http->escape(client_secret),
+		http->escape(redirect_uri)
 	);
 	
 	post_token(http, body);
@@ -95,9 +78,9 @@ void AuthManager::refresh(http_t http) {
 	assert(tokens_valid);
 	
 	std::string body = std::format("client_id={}&client_secret={}&refresh_token={}&grant_type=refresh_token",
-		client_id,
-		client_secret,
-		refresh_token
+		http->escape(client_id),
+		http->escape(client_secret),
+		http->escape(refresh_token)
 	);
 	
 	post_token(http, body);
@@ -118,6 +101,16 @@ std::string AuthManager::get_access_token(http_t http) {
 		refresh(http);
 	
 	return "Bearer " + access_token;
+}
+
+std::vector<std::string> AuthManager::get_headers(http_t http) {
+	auto token = get_access_token(http);
+	std::unique_lock<std::mutex> lock{mutex};
+	return {
+		"Authorization: " + token,
+		"X-DIGIKEY-Client-Id: " + client_id,
+		"X-DIGIKEY-Locale-Site: US"
+	};
 }
 
 void AuthManager::save_to_disk() const {

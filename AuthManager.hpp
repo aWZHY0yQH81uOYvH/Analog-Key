@@ -13,6 +13,7 @@ public:
 	AuthManager();
 
 	std::string get_access_token(http_t http);
+	std::vector<std::string> get_headers(http_t http);
 
 private:
 	void authorize(http_t http);

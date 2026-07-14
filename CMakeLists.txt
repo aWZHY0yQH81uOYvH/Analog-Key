@@ -5,9 +5,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 
 find_package(CURL REQUIRED)
-find_package(nlohmann_json REQUIRED)
-find_package(Threads REQUIRED)
-find_package(SQLite3 REQUIRED)
 
 # Download build some dependencies
 include(FetchContent)
@@ -52,31 +49,46 @@ target_include_directories(imgui PUBLIC
 
 target_link_libraries(imgui PUBLIC glfw)
 
-# curlcpp
+# json
 FetchContent_Declare(
-	curlcpp
-	GIT_REPOSITORY https://github.com/JosephP91/curlcpp.git
-	GIT_TAG        3.1
+	json
+	GIT_REPOSITORY https://github.com/nlohmann/json.git
+	GIT_TAG        v3.12.0
 	GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(curlcpp)
+FetchContent_MakeAvailable(json)
+
+# sqlitecpp
+FetchContent_Declare(
+	sqlitecpp
+	GIT_REPOSITORY https://github.com/SRombauts/SQLiteCpp.git
+	GIT_TAG        3.3.3
+	GIT_SHALLOW    TRUE
+)
+
+FetchContent_MakeAvailable(sqlitecpp)
 
 # Analog-Key
 add_executable(Analog-Key
 	main.cpp
+	HTTP.cpp
 	AuthManager.cpp
 	ThreadPool.cpp
+	DigiKey.cpp
+	Database.cpp
 )
 
 target_link_libraries(Analog-Key PRIVATE
-	curlcpp
-	nlohmann_json::nlohmann_json
-	Threads::Threads
+	CURL::libcurl
 	imgui
-	sqlite3
+	SQLiteCpp
 )
 
 target_compile_options(Analog-Key PRIVATE
-    -Wall -Wextra -Wpedantic
+    -Wall -Wextra -Wpedantic -g -O0 -fsanitize=address
+)
+
+target_link_options(Analog-Key PRIVATE
+    -fsanitize=address
 )

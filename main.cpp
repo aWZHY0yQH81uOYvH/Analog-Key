@@ -1,13 +1,20 @@
-#include "HTTP.hpp"
-#include "AuthManager.hpp"
+#include "DigiKey.hpp"
 #include "ThreadPool.hpp"
+#include "Database.hpp"
 
 #include <iostream>
+#include <memory>
 
 int main() {
-	AuthManager auth;
-	ThreadPool pool;
-	std::cout << auth.get_access_token(pool.threads[0].http) << std::endl;
+	curl_global_init(CURL_GLOBAL_DEFAULT);
+
+	auto pool = std::make_shared<ThreadPool>(1);
+	auto db   = std::make_shared<Database>(pool);
+	DigiKey slow{pool, db};
 	
+	slow.update_categories();
 	
+	pool->await_jobs();
+
+	curl_global_cleanup();
 }

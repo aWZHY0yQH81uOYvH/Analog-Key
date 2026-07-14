@@ -6,9 +6,9 @@
 ThreadPool::ThreadPool(int n) {
 	threads.resize(n);
 	for(auto &thread:threads) {
-		thread.http = std::make_shared<HTTP>();
-		static_cast<std::jthread&>(thread) = std::jthread([&](std::stop_token stop) {
-			Thread &self = thread;
+		Thread *self = &thread;
+		static_cast<std::jthread&>(thread) = std::jthread([self, this](std::stop_token stop) {
+			self->http = std::make_shared<HTTP>();
 			
 			while(!stop.stop_requested()) {
 				job_t job;
@@ -19,13 +19,15 @@ ThreadPool::ThreadPool(int n) {
 					if(!jobs.empty()) {
 						job = std::move(*jobs.begin());
 						jobs.pop_front();
+						active_jobs++;
 					} else continue;
 				}
 				
-				job(self);
+				job(*self);
 				
-				thread.active_job.clear();
-				thread.status.clear();
+				self->active_job.clear();
+				self->status.clear();
+				active_jobs--;
 			}
 		});
 	}
@@ -34,7 +36,12 @@ ThreadPool::ThreadPool(int n) {
 ThreadPool::~ThreadPool() {
 	for(auto &thread:threads)
 		thread.request_stop();
+		
 	cond.notify_all();
+	
+	for(auto &thread:threads)
+		if(thread.joinable())
+			thread.join();
 }
 
 void ThreadPool::run(job_t job) {
@@ -55,7 +62,7 @@ void ThreadPool::await_jobs() {
 	while(true) {
 		{
 			std::unique_lock lock{mutex};
-			if(jobs.empty())
+			if(jobs.empty() && !active_jobs)
 				break;
 		}
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));

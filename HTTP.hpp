@@ -1,21 +1,37 @@
 #pragma once
 
-#include <curl_easy.h>
-#include <sstream>
 #include <nlohmann/json.hpp>
-#include <memory>
+#include <curl/curl.h>
 
-class HTTP: private std::ostringstream, private curl::curl_ios<std::ostringstream>, public curl::curl_easy {
+#include <memory>
+#include <string>
+#include <vector>
+#include <atomic>
+
+class HTTP {
 public:
-	HTTP(): curl::curl_ios<std::ostringstream>(static_cast<std::ostringstream&>(*this)), curl::curl_easy(static_cast<curl::curl_ios<std::ostringstream>&>(*this)) {}
+	HTTP();
+	~HTTP();
 	
-	std::string response() const {
-		return this->str();
-	}
+	enum method_t {
+		GET,
+		POST
+	};
 	
-	nlohmann::json response_json() const {
-		return nlohmann::json::parse(response());
-	}
+	std::string request(method_t method, std::string url, std::string body = {}, std::vector<std::string> headers = {});
+	nlohmann::json request_json(method_t method, std::string url, std::string body = {}, std::vector<std::string> headers = {});
+	
+	std::string response() const;
+	nlohmann::json response_json() const;
+	
+	std::string escape(const std::string &in);
+	
+	CURL *curl;
+	
+private:
+	std::string buffer;
+	
+	static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata);
 };
 
 using http_t = std::shared_ptr<HTTP>;
