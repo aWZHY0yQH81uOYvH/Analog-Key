@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <stdexcept>
 
 class HTTP {
 public:
@@ -18,8 +19,12 @@ public:
 		POST
 	};
 	
-	std::string request(method_t method, std::string url, std::string body = {}, std::vector<std::string> headers = {});
-	nlohmann::json request_json(method_t method, std::string url, std::string body = {}, std::vector<std::string> headers = {});
+	struct rate_limit_error: public std::runtime_error {
+		using std::runtime_error::runtime_error;
+	};
+	
+	std::string request(method_t method, std::string url, std::string body = {}, std::vector<std::string> headers = {}, bool fight_rate_limit = true);
+	nlohmann::json request_json(method_t method, std::string url, std::string body = {}, std::vector<std::string> headers = {}, bool fight_rate_limit = true);
 	
 	std::string response() const;
 	nlohmann::json response_json() const;

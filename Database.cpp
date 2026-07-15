@@ -2,6 +2,9 @@
 
 #include <cstdlib>
 #include <functional>
+#include <format>
+
+using nlohmann::json;
 
 Database::Database(std::shared_ptr<ThreadPool> pool, std::filesystem::path path): SQLite::Database(get_path(path), SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE), pool(pool) {}
 
@@ -44,11 +47,14 @@ void Database::update_filters(ThreadPool::Thread &t) {
 			ORDER BY display_order
 		;)"}) {
 		
+		long product_count = row.getColumn(3).getInt64();
+		std::string name = std::format("{} ({})", row.getColumn(2).getString(), product_count);
+		
 		data.categories.push_back(Category{
 			.id            = row.getColumn(0),
 			.parent_id     = row.getColumn(1),
-			.name          = row.getColumn(2),
-			.product_count = row.getColumn(3).getInt64(),
+			.name          = name,
+			.product_count = product_count,
 			.depth         = row.getColumn(4)
 		});
 	}

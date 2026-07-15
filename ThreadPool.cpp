@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <chrono>
+#include <format>
 
 ThreadPool::ThreadPool(int n) {
 	threads.resize(n);
@@ -23,7 +24,11 @@ ThreadPool::ThreadPool(int n) {
 					} else continue;
 				}
 				
-				job(*self);
+// 				try {
+					job(*self);
+// 				} catch(std::exception &e) {
+// 					std::cerr << std::format("Error while performing \"{}\" at step \"{}\": {}\n", self->job, self->status, e.what());
+// 				}
 				
 				self->job.clear();
 				self->status.clear();

@@ -17,8 +17,12 @@ class Database: public SQLite::Database {
 public:
 	Database(std::shared_ptr<ThreadPool> pool, std::filesystem::path path = {});
 	
+	// Update display data if needed
 	void check_update();
 	void update_filters(ThreadPool::Thread &t);
+	
+	// Reprocess all collected search API json responses and update internal db
+	void reprocess_api_search_results(long since = 0);
 	
 	using clock = std::chrono::steady_clock;
 	
@@ -44,6 +48,9 @@ public:
 	std::atomic<bool> update_queued = false;
 	
 protected:
+	// Add a single API response to the internal db
+	void process_api_search_result(const nlohmann::json &j);
+
 	std::shared_ptr<ThreadPool> pool;
 	
 private:

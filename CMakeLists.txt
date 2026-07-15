@@ -79,6 +79,7 @@ add_executable(Analog-Key
 	DigiKey.cpp
 	Database.cpp
 	GUI.cpp
+	Parameter.cpp
 )
 
 target_link_libraries(Analog-Key PRIVATE
