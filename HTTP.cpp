@@ -1,5 +1,7 @@
 #include "HTTP.hpp"
 
+#include <lz-string.hpp>
+
 #include <cstdlib>
 #include <chrono>
 #include <thread>
@@ -23,9 +25,10 @@ std::string HTTP::request(method_t method, std::string url, std::string body, st
 	
 	for(; attempts > 0; attempts--) {
 		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+		curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 		buffer.clear();
 		
 		switch(method) {
@@ -58,7 +61,7 @@ std::string HTTP::request(method_t method, std::string url, std::string body, st
 		
 		long code = 0;
 		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
-		if(code == 429) {
+		if(code == 429 || code == 403) {
 			std::string error = std::format("Rate limit exceeded from {}", url);
 			if(fight_rate_limit) {
 				std::cerr << std::format("{}: retrying in {} minute{}\n", error, backoff.count(), backoff.count() == 1 ? "" : "s");
@@ -97,6 +100,37 @@ std::string HTTP::escape(const std::string &in) {
 	std::string str = ret;
 	free(ret);
 	return str;
+}
+
+std::string HTTP::lzuri(const json &j) {
+	std::string jj = j.dump(-1, ' ', true);
+
+	// Annoying u16string conversions
+	lzstring::string jjj;
+	jjj.reserve(jj.size());
+	for(unsigned char c:jj)
+		jjj.push_back(static_cast<char16_t>(c));
+
+	// Same bitstream as compressToEncodedURIComponent, just via the
+	// base64 codepath (the library doesn't expose the URI-safe variant directly).
+	auto out16 = lzstring::compressToBase64(jjj);
+
+	std::string out;
+	out.reserve(out16.size());
+	for(char16_t c:out16)
+		out.push_back(static_cast<char>(c));
+
+	// lz-string's URI-safe alphabet differs from base64 only at index 63
+	// ('-' instead of '/'); index 62 ('+') is shared between both alphabets.
+	for(char &c:out)
+		if(c == '/') c = '-';
+
+	// Delete base64 =
+	while(!out.empty() && out.back() == '=')
+		out.pop_back();
+	
+	// URL encode any +
+	return escape(out);
 }
 
 size_t HTTP::write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {

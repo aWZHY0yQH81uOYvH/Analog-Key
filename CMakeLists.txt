@@ -70,6 +70,15 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(sqlitecpp)
 
+# lzstring
+FetchContent_Declare(
+	lzstringcpp
+	GIT_REPOSITORY https://github.com/andykras/lz-string-cpp.git
+	GIT_TAG main
+)
+
+FetchContent_MakeAvailable(lzstringcpp)
+
 # Analog-Key
 add_executable(Analog-Key
 	main.cpp
@@ -80,6 +89,10 @@ add_executable(Analog-Key
 	Database.cpp
 	GUI.cpp
 	Parameter.cpp
+)
+
+target_include_directories(Analog-Key PRIVATE
+	${lzstringcpp_SOURCE_DIR}/src
 )
 
 target_link_libraries(Analog-Key PRIVATE

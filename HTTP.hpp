@@ -30,6 +30,7 @@ public:
 	nlohmann::json response_json() const;
 	
 	std::string escape(const std::string &in);
+	std::string lzuri(const nlohmann::json &json);
 	
 	CURL *curl;
 	

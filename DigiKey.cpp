@@ -3,6 +3,7 @@
 
 #include <stdexcept>
 #include <iostream>
+#include <cstdlib>
 
 using nlohmann::json;
 
@@ -63,12 +64,12 @@ void DigiKey::update_category(int id, int start, int stop) {
 		
 		{
 			std::unique_lock<std::mutex> lock(db->mutex);
-			SQLite::Statement query{*db, "SELECT name, product_count FROM categories WHERE id = ?"};
-			query.bind(1, id);
-			query.executeStep();
-			std::string name = query.getColumn(0);
-			product_count = query.getColumn(1);
-			t.job = std::format("Updating category \"{}\"", name);
+			// SQLite::Statement query{*db, "SELECT name, product_count FROM categories WHERE id = ?"};
+			// query.bind(1, id);
+			// query.executeStep();
+			// std::string name = query.getColumn(0);
+			// product_count = query.getColumn(1);
+			// t.job = std::format("Updating category \"{}\"", name);
 			
 			db->exec(
 			R"(CREATE TABLE IF NOT EXISTS keywordsearch_json (
@@ -81,37 +82,50 @@ void DigiKey::update_category(int id, int start, int stop) {
 		if(stop - start < product_count)
 			product_count = stop - start;
 		
+		const char *cookie = std::getenv("DIGIKEY_COOKIES");
+
 		while(true) {
-			t.status = std::format("Querying API ({}/{} parts)", offset - start, product_count);
+			// t.status = std::format("Querying API ({}/{} parts)", offset - start, product_count);
+			std::cout << std::format("Part index {}\n", offset);
 			
-			auto api_query = json::parse(std::format(R"({{
-				"Keywords": "",
-				"Limit": {},
-				"Offset": {},
-				"FilterOptionsRequest": {{
-					"CategoryFilter": [
-						{{"Id": "{}"}}
-					]
-				}}
-			}})", limit, offset, id));
+			const int nparts = 100;
+			auto api_query = json::parse(std::format("{{\"5\":{{\"p\":{},\"pp\":{}}}}}", offset / nparts + 1, nparts));
 			
-			auto headers = auth.get_headers(t.http);
-			headers.push_back("Content-Type: application/json");
+			std::string url = std::format("https://www.digikey.com/products/api/v5/filter-page/{}?s={}", id, t.http->lzuri(api_query));
 			
-			auto j = t.http->request_json(HTTP::POST, "https://api.digikey.com/products/v4/search/keyword", api_query.dump(), headers);
+			std::vector<std::string> headers{
+				"Accept: application/json",
+				"Authorization: Bearer",
+				"Sec-Fetch-Site: same-origin",
+				"Accept-Language: en-US,en;q=0.9",
+				"Cache-Control: no-cache",
+				"Sec-Fetch-Mode: cors",
+				"Accept-Encoding: gzip, deflate, br",
+				"Referer: https://www.digikey.com",
+				"User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+				"Sec-Fetch-Dest: empty",
+				"x-currency: USD",
+				"Priority: u=3, i",
+				"lang: en",
+				"site: us"
+			};
+			
+			if(cookie)
+				headers.push_back(std::format("Cookie: {}", cookie));
+			
+			auto j = t.http->request_json(HTTP::GET, url, "", headers);
 			
 			std::unique_lock<std::mutex> lock(db->mutex);
 			SQLite::Transaction transaction(*db);
 			SQLite::Statement insert{*db, "INSERT INTO keywordsearch_json (time, json) VALUES (?, ?);"};
-			
+
 			insert.bind(1, std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
 			insert.bind(2, j.dump());
 			insert.exec();
 			
-			process_api_search_result(j);
+			// process_api_search_result(j);
 			transaction.commit();
 			
-			int nparts = j["Products"].size();
 			offset += nparts;
 			if(!nparts || nparts < limit || offset > stop)
 				break;
