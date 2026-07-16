@@ -8,7 +8,7 @@
 #include <string>
 #include <functional>
 #include <variant>
-#include <vector>
+#include <map>
 #include <memory>
 #include <optional>
 
@@ -21,18 +21,20 @@ struct Parameter {
 		TYPE_TEXT
 	};
 	
-	Parameter(std::string name, param_type type);
+	Parameter(int id, std::string name, param_type type);
 	virtual ~Parameter() = default;
 	
 	param_type type;
-	using parse_variant = std::variant<int, float, std::string>;
 	
+	using parse_variant = std::variant<int, float, std::string>;
 	virtual parse_variant parse(const nlohmann::json &j) const = 0;
-	virtual int insert(std::shared_ptr<Database> db, const nlohmann::json &j, int ind, std::optional<int> id = {}) const;
+	
+	virtual int insert(std::shared_ptr<Database> db, const nlohmann::json &j, std::optional<int> part_id = {}) const;
 	
 	const std::string name;
+	int id;
 	
-	static int get_part_id(std::shared_ptr<Database> db, const nlohmann::json &j);
+	static int get_part_id(const nlohmann::json &j);
 	
 	static std::string id_to_table(int id);
 };
@@ -43,7 +45,7 @@ struct SpecialParameter: public Parameter {
 	using accessor_t = std::variant<nlohmann::json::json_pointer, accessor_func>;
 	const accessor_t accessor;
 	
-	SpecialParameter(std::string name, param_type type, accessor_t accessor);
+	SpecialParameter(int id, std::string name, param_type type, accessor_t accessor);
 	
 	virtual parse_variant parse(const nlohmann::json &j) const override;
 	
@@ -53,14 +55,8 @@ struct SpecialParameter: public Parameter {
 	// Load special parameters into db
 	static void load(std::shared_ptr<Database> db, const nlohmann::json &j);
 	
-	// Index in sp_list to parameter number
-	static int i_to_id(int i);
-	
 private:
-	// Special function for parsing category
-	static parse_variant parse_category(const nlohmann::json &j);
-	
-	static std::vector<SpecialParameter> sp_list;
+	static std::multimap<std::string, SpecialParameter> sp_list;
 	
 	friend struct Parameter;
 };

@@ -12,6 +12,7 @@
 #include <array>
 #include <string>
 #include <deque>
+#include <map>
 
 class Database: public SQLite::Database {
 public:

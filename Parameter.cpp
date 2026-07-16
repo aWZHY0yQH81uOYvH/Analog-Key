@@ -5,28 +5,21 @@
 
 using nlohmann::json;
 
-// First MUST be MPN
-// Second MUST be manufacturer
-std::vector<SpecialParameter> SpecialParameter::sp_list{
-	{"MPN",                  TYPE_TEXT, "/ManufacturerProductNumber"_json_pointer      },
-	{"Manufacturer",         TYPE_INT,  "/Manufacturer/Id"_json_pointer                },
-	{"Category",             TYPE_INT,  parse_category                                 },
-	{"Datasheet",            TYPE_TEXT, "/DatasheetUrl"_json_pointer                   },
-	{"Description",          TYPE_TEXT, "/Description/ProductDescription"_json_pointer },
-	{"Detailed Description", TYPE_TEXT, "/Description/DetailedDescription"_json_pointer},
-	{"Normally Stocking",    TYPE_BOOL, "/NormallyStocking"_json_pointer               },
-	{"Photo",                TYPE_TEXT, "/PhotoUrl"_json_pointer                       },
-	{"Status",               TYPE_TEXT, "/ProductStatus/Status"_json_pointer           },
-	{"URL",                  TYPE_TEXT, "/ProductUrl"_json_pointer                     },
-	{"Available",            TYPE_INT,  "/QuantityAvailable"_json_pointer              },
-	{"Series",               TYPE_TEXT, "/Series/Name"_json_pointer                    }
+std::multimap<std::string, SpecialParameter> SpecialParameter::sp_list{
+	{"productDetail", {-1, "MPN",          TYPE_TEXT, "/value/productNumber"_json_pointer           }},
+	{"productDetail", {-2, "Manufacturer", TYPE_TEXT, "/value/manufacturer/value/label"_json_pointer}},
+	{"productDetail", {-3, "Datasheet",    TYPE_TEXT, "/value/datasheetUrl"_json_pointer            }},
+	{"productDetail", {-4, "Description",  TYPE_TEXT, "/value/description"_json_pointer             }},
+	{"productDetail", {-5, "Photo",        TYPE_TEXT, "/value/image/thumb"_json_pointer             }},
+	{"productDetail", {-6, "URL",          TYPE_TEXT, "/value/detailUrl"_json_pointer               }},
+	{"qtyAvailable",  {-7, "Available",    TYPE_TEXT, "/value/0/quantity"_json_pointer              }}
 };
 
-Parameter::Parameter(std::string name, param_type type): type(type), name(name) {}
+Parameter::Parameter(int id, std::string name, param_type type): type(type), name(name), id(id) {}
 
-int Parameter::insert(std::shared_ptr<Database> db, const json &j, int ind, std::optional<int> id) const {
-	SQLite::Statement insert{*db, std::format("INSERT OR REPLACE INTO {} (part_id, val) VALUES (?, ?) RETURNING part_id;", id_to_table(ind))};
-	if(id) insert.bind(1, id.value());
+int Parameter::insert(std::shared_ptr<Database> db, const json &j, std::optional<int> part_id) const {
+	SQLite::Statement insert{*db, std::format("INSERT OR REPLACE INTO {} (part_id, val) VALUES (?, ?) RETURNING part_id;", id_to_table(id))};
+	if(part_id) insert.bind(1, part_id.value());
 	else insert.bind(1);
 		
 	auto parsed = parse(j);
@@ -43,72 +36,54 @@ int Parameter::insert(std::shared_ptr<Database> db, const json &j, int ind, std:
 			break;
 	};
 	insert.executeStep();
-	return insert.getColumn(0);
+	int ret = insert.getColumn(0);
+	insert.reset();
+	return ret;
 }
 
-int Parameter::get_part_id(std::shared_ptr<Database> db, const json &j) {
-	// Check if this component already has an ID
-	// Check MPN and manufacturer match (first two special parameters)
-	auto table_mpn = id_to_table(SpecialParameter::i_to_id(0));
-	auto table_mfr = id_to_table(SpecialParameter::i_to_id(1));
-	SQLite::Statement check_exists{*db, std::format(
-	R"(SELECT sp1.part_id
-		FROM {} AS sp1
-		JOIN {} AS sp2
-		ON sp1.part_id = sp2.part_id
-		WHERE sp1.val = ?
-		  AND sp2.val = ?
-	;)", table_mpn, table_mpn)};
-	
-	std::string mpn;
-	check_exists.bind(1, mpn = std::get<std::string>(SpecialParameter::sp_list[0].parse(j)));
-	check_exists.bind(2,       std::get<int>        (SpecialParameter::sp_list[1].parse(j)));
-	int id = -1;
-	int count = 0;
-	for(auto &&row:check_exists) {
-		id = row.getColumn(0);
-		count++;
-	}
-	
-	if(count > 1)
-		std::cout << std::format("Warning: multiple matches for part number {}\n", mpn);
-	
-	if(count > 0)
-		return id;
-	
-	// Part does not exist, add it to MPN and manufacturer tables
-	id = SpecialParameter::sp_list[0].insert(db, j, SpecialParameter::i_to_id(0));
-	     SpecialParameter::sp_list[1].insert(db, j, SpecialParameter::i_to_id(1));
-	return id;
+int Parameter::get_part_id(const json &product) {
+	try {
+		for(auto &node:product)
+			if(node["type"] == "productDetail")
+				return std::atoi(node["value"]["productId"].get<std::string>().c_str());
+	} catch(...) {}
+	std::cout << "Product does not have ID!\n";
+	std::cout << product.dump(2) << std::endl;
+	return -1;
 }
 
-SpecialParameter::SpecialParameter(std::string name, param_type type, accessor_t accessor): Parameter(name, type), accessor(accessor) {}
+SpecialParameter::SpecialParameter(int id, std::string name, param_type type, accessor_t accessor): Parameter(id, name, type), accessor(accessor) {}
 
 void SpecialParameter::gen_tables(std::shared_ptr<Database> db) {
 	SQLite::Statement insert_param{*db, "INSERT INTO parameters (id, name) VALUES (?, ?);"};
 	
-	for(int i = 0; i < (int)sp_list.size(); i++) {
-		auto &sp = sp_list[i];
+	for(auto &sp_pair:sp_list) {
+		auto &sp = sp_pair.second;
 		// Special parameters have negative IDs
 		db->exec(std::format(
 		R"(CREATE TABLE {} (
 			part_id       INTEGER PRIMARY KEY,
 			val           TEXT
-		);)", id_to_table(i_to_id(i))));
+		);)", id_to_table(sp.id)));
 		
 		// Add to global table of parameters
-		insert_param.bind(1, i_to_id(i));
+		insert_param.bind(1, sp.id);
 		insert_param.bind(2, sp.name);
 		insert_param.exec();
 		insert_param.reset();
 	}
 }
 
-void SpecialParameter::load(std::shared_ptr<Database> db, const json &j) {
-	// If not already in first two special parameter tables, it will be added by this call
-	const int id = get_part_id(db, j);
-	for(int i = 2; i < (int)sp_list.size(); i++)
-		sp_list[i].insert(db, j, i_to_id(i), id);
+void SpecialParameter::load(std::shared_ptr<Database> db, const json &product) {
+	const int id = get_part_id(product);
+	for(auto &section:product) {
+		if(std::atoi(section["id"].get<std::string>().c_str()) < 0) {
+			auto matches = sp_list.equal_range(section["type"]);
+			if(matches.first != sp_list.end())
+				for(auto it = matches.first; it != matches.second; it++)
+					it->second.insert(db, section, id);
+		}
+	}
 }
 
 Parameter::parse_variant SpecialParameter::parse(const nlohmann::json &j) const {
@@ -126,21 +101,6 @@ Parameter::parse_variant SpecialParameter::parse(const nlohmann::json &j) const 
 		}
 	}
 	else return std::get<accessor_func>(accessor).operator()(j);
-}
-
-Parameter::parse_variant SpecialParameter::parse_category(const json &j) {
-	// Find highest-depth category
-	auto category = j["Category"];
-	while(category["ChildCategories"].size()) {
-		if(category["ChildCategories"].size() > 1)
-			std::cerr << std::format("Warning: Part {} is in multiple categories\n", (std::string)j["ManufacturerProductNumber"]);
-		category = category["ChildCategories"][0];
-	}
-	return category["CategoryId"].get<int>();
-}
-
-int SpecialParameter::i_to_id(int i) {
-	return -i-1;
 }
 
 std::string Parameter::id_to_table(int id) {

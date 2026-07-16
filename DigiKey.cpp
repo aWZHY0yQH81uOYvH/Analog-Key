@@ -140,38 +140,6 @@ void DigiKey::reprocess_api_search_results(long since) {
 		std::unique_lock<std::mutex> lock(db->mutex);
 		SQLite::Transaction transaction(*db);
 		
-		// Re-create special tables
-		db->exec("DROP TABLE IF EXISTS dkpn;");
-		db->exec(
-		R"(CREATE TABLE dkpn (
-			dkpn_id       INTEGER PRIMARY KEY,
-			dkpn          TEXT UNIQUE NOT NULL,
-			part_id       INTEGER NOT NULL
-		);)");
-		
-		db->exec("DROP TABLE IF EXISTS pricing;");
-		db->exec(
-		R"(CREATE TABLE pricing (
-			id            INTEGER PRIMARY KEY,
-			dkpn_id       INTEGER NOT NULL,
-			moq           INTEGER NOT NULL,
-			price         REAL NOT NULL
-		);)");
-		
-		db->exec("DROP TABLE IF EXISTS manufacturers;");
-		db->exec(
-		R"(CREATE TABLE manufacturers (
-			id            INTEGER PRIMARY KEY,
-			name          TEXT NOT NULL
-		);)");
-		
-		db->exec("DROP TABLE IF EXISTS packaging;");
-		db->exec(
-		R"(CREATE TABLE packaging (
-			id            INTEGER PRIMARY KEY,
-			name          TEXT NOT NULL
-		);)");
-		
 		// Delete all existing parameter tables
 		std::vector<int> table_ids;
 		if(db->tableExists("parameters"))
@@ -208,7 +176,7 @@ void DigiKey::reprocess_api_search_results(long since) {
 }
 
 void DigiKey::process_api_search_result(const json &j) {
-	for(auto &product:j["Products"]) {
+	for(auto &product:j["data"]["products"]) {
 		// Load special parameters
 		SpecialParameter::load(db, product);
 		

@@ -93,6 +93,7 @@ add_executable(Analog-Key
 
 target_include_directories(Analog-Key PRIVATE
 	${lzstringcpp_SOURCE_DIR}/src
+	${json_SOURCE_DIR}/include
 )
 
 target_link_libraries(Analog-Key PRIVATE
@@ -103,11 +104,12 @@ target_link_libraries(Analog-Key PRIVATE
 )
 
 target_compile_options(Analog-Key PRIVATE
-    -Wall -Wextra -Wpedantic -g -O0 -fsanitize=address
+    -Wall -Wextra -Wpedantic
+#     -g -O0 -fsanitize=address
 )
 
 target_link_options(Analog-Key PRIVATE
-    -fsanitize=address
+#     -fsanitize=address
 )
 
 target_compile_definitions(Analog-Key PRIVATE
