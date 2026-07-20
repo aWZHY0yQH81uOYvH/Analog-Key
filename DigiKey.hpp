@@ -4,9 +4,11 @@
 #include "Auth.hpp"
 #include "ThreadPool.hpp"
 #include "Database.hpp"
+#include "Parameter.hpp"
 
 #include <memory>
 #include <limits>
+#include <map>
 
 class DigiKey {
 public:
@@ -30,6 +32,8 @@ protected:
 	void process_api_search_result(const nlohmann::json &j);
 
 	Auth auth;
+	
+	std::map<int, Parameter> parameters;
 	
 	std::shared_ptr<ThreadPool> pool;
 	std::shared_ptr<Database> db;

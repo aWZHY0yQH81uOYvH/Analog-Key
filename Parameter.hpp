@@ -27,14 +27,21 @@ struct Parameter {
 	param_type type;
 	
 	using parse_variant = std::variant<int, float, std::string>;
-	virtual parse_variant parse(const nlohmann::json &j) const = 0;
+	virtual parse_variant parse(const nlohmann::json &j) const;
 	
 	virtual int insert(std::shared_ptr<Database> db, const nlohmann::json &j, std::optional<int> part_id = {}) const;
 	
-	const std::string name;
+	void update_filters_from_db(std::shared_ptr<Database> db);
+	
+	// Load normal parameters into db
+	// Maintain list of parameter objects
+	static void load(std::shared_ptr<Database> db, const nlohmann::json &j, std::map<int, Parameter> &param_list);
+	
+	std::string name;
 	int id;
 	
 	static int get_part_id(const nlohmann::json &j);
+	static void create_parameter_table(std::shared_ptr<Database> db, int id, std::string name = {});
 	
 	static std::string id_to_table(int id);
 };

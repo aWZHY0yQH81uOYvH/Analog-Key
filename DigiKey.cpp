@@ -7,7 +7,15 @@
 
 using nlohmann::json;
 
-DigiKey::DigiKey(std::shared_ptr<ThreadPool> pool, std::shared_ptr<Database> db): pool(pool), db(db) {}
+DigiKey::DigiKey(std::shared_ptr<ThreadPool> pool, std::shared_ptr<Database> db): pool(pool), db(db) {
+	// Load list of parameters from db
+	if(db->tableExists("parameters"))
+		for(auto &&row:SQLite::Statement{*db, "SELECT id, name FROM parameters;"}) {
+			const int id = row.getColumn(0);
+			const std::string name = row.getColumn(1);
+			parameters.emplace(id, Parameter{id, name, Parameter::TYPE_TEXT});
+		}
+}
 
 void DigiKey::update_categories() {
 	pool->run([&](ThreadPool::Thread &t) {
@@ -154,8 +162,9 @@ void DigiKey::reprocess_api_search_results(long since) {
 		R"(CREATE TABLE parameters (
 			id            INTEGER PRIMARY KEY,
 			name          TEXT NOT NULL,
-			filters       TEXT
+			filters       TEXT DEFAULT '{}'
 		);)");
+		parameters.clear();
 		
 		// Generate all special parameter tables
 		SpecialParameter::gen_tables(db);
@@ -180,7 +189,41 @@ void DigiKey::process_api_search_result(const json &j) {
 		// Load special parameters
 		SpecialParameter::load(db, product);
 		
-		// TODO: load normal parameters
+		// Load normal parameters
+		Parameter::load(db, product, parameters);
+	}
+	
+	// Update parameter names
+	std::map<int, std::string> filter_names;
+	auto parse_filter_names = [&](const json &j) {
+		for(auto &filter:j)
+			filter_names[std::atoi(filter["key"].get<std::string>().c_str())] = filter["label"];
+	};
+	
+	parse_filter_names(j["data"]["commonFilters"]);
+	parse_filter_names(j["data"]["filters"]);
+	
+	SQLite::Statement update{*db, "UPDATE parameters SET name = ? WHERE id = ?;"};
+	
+	for(auto &&row:SQLite::Statement{*db, "SELECT id FROM parameters;"}) {
+		const int id = row.getColumn(0);
+		
+		// Don't use DigiKey's names for special parameters (they're different)
+		if(id < 0)
+			continue;
+		
+		auto name_it = filter_names.find(id);
+		if(name_it == filter_names.end())
+			continue;
+		
+		const auto &name = name_it->second;
+		update.bind(1, name);
+		update.bind(2, id);
+		update.exec();
+		update.reset();
+		auto param_it = parameters.find(id);
+		if(param_it != parameters.end())
+			param_it->second.name = name;
 	}
 }
 
