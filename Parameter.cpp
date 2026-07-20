@@ -174,16 +174,17 @@ void Parameter::reprocess_parameters(std::shared_ptr<Database> db) {
 }
 
 std::string Parameter::parse(const nlohmann::json &j) const {
-	return j["value"]["value"].get<std::string>();
+	return j.at("value").at("value").get<std::string>();
 }
 
 void Parameter::load(std::shared_ptr<Database> db, const nlohmann::json &product, std::map<int, Parameter> &param_list) {
 	SQLite::Statement check{*db, "SELECT name FROM parameters WHERE id == ?;"};
 	
 	const int part_id = get_part_id(product);
+	if(part_id < 0) return;
 	
 	for(auto &section:product) {
-		const int id = std::atoi(section["id"].get<std::string>().c_str());
+		const int id = std::atoi(section.at("id").get<std::string>().c_str());
 		if(id < 0)
 			continue;
 		
@@ -209,8 +210,8 @@ void Parameter::load(std::shared_ptr<Database> db, const nlohmann::json &product
 int Parameter::get_part_id(const json &product) {
 	try {
 		for(auto &node:product)
-			if(node["type"] == "productDetail")
-				return std::atoi(node["value"]["productId"].get<std::string>().c_str());
+			if(node.at("type") == "productDetail")
+				return std::atoi(node.at("value").at("productId").get<std::string>().c_str());
 	} catch(...) {}
 	std::cout << "Product does not have ID!\n";
 	std::cout << product.dump(2) << std::endl;
@@ -245,9 +246,10 @@ void SpecialParameter::gen_tables(std::shared_ptr<Database> db, std::map<int, Pa
 
 void SpecialParameter::load(std::shared_ptr<Database> db, const json &product) {
 	const int part_id = get_part_id(product);
+	if(part_id < 0) return;
 	for(auto &section:product) {
-		if(std::atoi(section["id"].get<std::string>().c_str()) < 0) {
-			auto matches = sp_list.equal_range(section["type"]);
+		if(std::atoi(section.at("id").get<std::string>().c_str()) < 0) {
+			auto matches = sp_list.equal_range(section.at("type"));
 			if(matches.first != sp_list.end())
 				for(auto it = matches.first; it != matches.second; it++)
 					it->second.insert(db, section, part_id);
@@ -257,7 +259,7 @@ void SpecialParameter::load(std::shared_ptr<Database> db, const json &product) {
 
 std::string SpecialParameter::parse(const nlohmann::json &j) const {
 	if(auto *ptr = std::get_if<json::json_pointer>(&accessor)) {
-		auto &jj = j[*ptr];
+		auto &jj = j.at(*ptr);
 		return jj.get<std::string>();
 	}
 	else return std::get<accessor_func>(accessor).operator()(j);

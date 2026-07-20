@@ -132,7 +132,7 @@ void DigiKey::update_category(int id, int start, int stop) {
 			insert.bind(2, j.dump());
 			insert.exec();
 			
-			// process_api_search_result(j);
+			process_api_search_result(j);
 			transaction.commit();
 			
 			offset += nparts;
@@ -171,12 +171,18 @@ void DigiKey::reprocess_api_search_results(long since) {
 		SpecialParameter::gen_tables(db, parameters);
 		
 		// Load all previous json
-		SQLite::Statement query{*db, "SELECT json FROM keywordsearch_json WHERE time > ?"};
+		SQLite::Statement query{*db, "SELECT id, json FROM keywordsearch_json WHERE time > ?;"};
 		query.bind(1, (int64_t)since);
 		
 		for(auto &&row:query) {
-			auto j = json::parse(row.getColumn(0).getString());
-			process_api_search_result(j);
+			const int id = row.getColumn(0).getInt();
+			std::cout << std::format("Parsing JSON id {}\n", id);
+			try {
+				auto j = json::parse(row.getColumn(1).getString());
+				process_api_search_result(j);
+			} catch(std::exception &e) {
+				std::cerr << std::format("Failed to parse JSON result id {}: {}\n", id, e.what());
+			}
 		}
 		
 		transaction.commit();
@@ -200,7 +206,7 @@ void DigiKey::reprocess_parameters() {
 }
 
 void DigiKey::process_api_search_result(const json &j) {
-	for(auto &product:j["data"]["products"]) {
+	for(auto &product:j.at("data").at("products")) {
 		// Load special parameters
 		SpecialParameter::load(db, product);
 		
@@ -212,11 +218,11 @@ void DigiKey::process_api_search_result(const json &j) {
 	std::map<int, std::string> filter_names;
 	auto parse_filter_names = [&](const json &j) {
 		for(auto &filter:j)
-			filter_names[std::atoi(filter["key"].get<std::string>().c_str())] = filter["label"];
+			filter_names[std::atoi(filter.at("key").get<std::string>().c_str())] = filter.at("label");
 	};
 	
-	parse_filter_names(j["data"]["commonFilters"]);
-	parse_filter_names(j["data"]["filters"]);
+	parse_filter_names(j.at("data").at("commonFilters"));
+	parse_filter_names(j.at("data").at("filters"));
 	
 	SQLite::Statement update{*db, "UPDATE parameters SET name = ? WHERE id = ?;"};
 	
