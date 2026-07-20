@@ -90,9 +90,13 @@ add_executable(Analog-Key
 	GUI.cpp
 	Parameter.cpp
 	ParamFilter.cpp
+	
+	Filters/SIValue.cpp
+	Filters/Range.cpp
 )
 
 target_include_directories(Analog-Key PRIVATE
+	.
 	${lzstringcpp_SOURCE_DIR}/src
 	${json_SOURCE_DIR}/include
 )

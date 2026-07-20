@@ -1,10 +1,22 @@
 #include "ParamFilter.hpp"
 
+#include "Filters/SIValue.hpp"
+#include "Filters/Range.hpp"
+
 #include <cassert>
 
-const std::map<std::string, std::unique_ptr<ParamFilter>> ParamFilter::all_filters {
-	
+const std::map<std::string, std::shared_ptr<ParamFilter>> ParamFilter::all_filters {
+	{"si",    std::make_shared<FilterSI>()   },
+	{"range", std::make_shared<FilterRange>()}
 };
+
+bool ParamFilter::render_options() {
+	return false;
+}
+
+bool ParamFilter::render_list() {
+	return false;
+}
 
 std::string ParamFilter::type2str(param_type type) {
 	switch(type) {

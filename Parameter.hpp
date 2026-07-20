@@ -28,7 +28,7 @@ struct Parameter {
 	
 	std::string name;
 	int id;
-	std::vector<const ParamFilter*> filters;
+	std::vector<std::shared_ptr<ParamFilter>> filters;
 	
 	// Load normal parameters into db
 	// Maintain list of parameter objects

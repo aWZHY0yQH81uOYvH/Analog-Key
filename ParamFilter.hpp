@@ -18,12 +18,25 @@ struct ParamFilter {
 	
 	virtual ~ParamFilter() = default;
 	
-	using parse_variant = std::variant<int, float, std::string>;
-	virtual std::vector<std::optional<parse_variant>> parse(const std::string &val) const = 0;
+	// Make copy that can have settings
+	virtual ParamFilter *clone() const = 0;
+	#define PARAMFILTER_CLONE(name) virtual ParamFilter *clone() const override {return new name{*this};}
 	
-	const std::vector<std::pair<std::string, param_type>> columns;
+	// Parse some data
+	using parse_variant = std::variant<int, double, std::string>;
+	using parse_list = std::vector<std::optional<parse_variant>>;
+	virtual parse_list parse(const std::string &val) const = 0;
 	
-	static const std::map<std::string, std::unique_ptr<ParamFilter>> all_filters;
+	// List of database columns for this filter
+	std::vector<std::pair<std::string, param_type>> columns;
+	
+	// Render this filter's options
+	virtual bool render_options();
+	
+	// Take over rendering of this list
+	virtual bool render_list(/* TODO */);
+	
+	static const std::map<std::string, std::shared_ptr<ParamFilter>> all_filters;
 	
 	static std::string type2str(param_type type);
 	static param_type str2type(const std::string &str);

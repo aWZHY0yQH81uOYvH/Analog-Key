@@ -41,7 +41,7 @@ void Parameter::update_filters_from_db(std::shared_ptr<Database> db) {
 		for(auto &filter:j) {
 			auto filter_it = ParamFilter::all_filters.find(filter);
 			if(filter_it != ParamFilter::all_filters.end())
-				filters.push_back(filter_it->second.get());
+				filters.emplace_back(filter_it->second->clone());
 		}
 	}
 }
@@ -56,12 +56,17 @@ void Parameter::reprocess_parameters(std::shared_ptr<Database> db) {
 	int count = 0;
 	const int limit = 10000;
 	for(auto &&row:query) {
+		std::string value = row.getColumn(1);
+		
+		// Don't count rows with '-' for or against
+		if(value == "-")
+			continue;
+		
 		if(count++ >= limit)
 			break;
 		
-		std::string value = row.getColumn(1);
-		
 		for(int i = 0; auto &[_, filter]:ParamFilter::all_filters) {
+			// If any result column has a value, consider it a successful parse
 			for(auto &result:filter->parse(value))
 				if(result.has_value()) {
 					success[i]++;
@@ -76,6 +81,7 @@ void Parameter::reprocess_parameters(std::shared_ptr<Database> db) {
 	
 	// Determine what columns we already have
 	std::string query_cols;
+	std::vector<std::string> relevant_filters;
 	std::map<std::string, ParamFilter::param_type> columns;
 	for(auto &&row:SQLite::Statement{*db, std::format("SELECT name, type FROM pragma_table_info('{}');", table)})
 		columns.emplace(row.getColumn(0), ParamFilter::str2type(row.getColumn(1)));
@@ -86,6 +92,9 @@ void Parameter::reprocess_parameters(std::shared_ptr<Database> db) {
 		// Skip filters that don't parse this data well
 		if(success[i++] < count * threshold)
 			continue;
+		
+		// Make list of relevant filters for saving in parameters table
+		relevant_filters.push_back(name);
 		
 		// Prepend filter name to its required column names
 		auto required_cols = filter->columns;
@@ -115,8 +124,14 @@ void Parameter::reprocess_parameters(std::shared_ptr<Database> db) {
 			}
 		}
 		
-		filters.push_back(filter.get());
+		filters.emplace_back(filter->clone());
 	}
+	
+	// Save filters in parameters table
+	SQLite::Statement relevant_filters_update{*db, "UPDATE parameters SET filters=? WHERE id=?;"};
+	relevant_filters_update.bind(1, json(relevant_filters).dump());
+	relevant_filters_update.bind(2, id);
+	relevant_filters_update.exec();
 	
 	if(query_cols.empty())
 		return;
@@ -128,7 +143,7 @@ void Parameter::reprocess_parameters(std::shared_ptr<Database> db) {
 		std::string value = row.getColumn(1);
 		
 		int col_idx = 1;
-		for(auto *filter:filters) {
+		for(auto &filter:filters) {
 			for(size_t i = 0; i < filter->columns.size(); i++) {
 				auto results = filter->parse(value);
 				if(i < results.size() && results[i].has_value()) {
@@ -138,7 +153,7 @@ void Parameter::reprocess_parameters(std::shared_ptr<Database> db) {
 							insert_stmt.bind(col_idx, std::get<int>(result));
 							break;
 						case ParamFilter::TYPE_REAL:
-							insert_stmt.bind(col_idx, std::get<float>(result));
+							insert_stmt.bind(col_idx, std::get<double>(result));
 							break;
 						case ParamFilter::TYPE_TEXT:
 							insert_stmt.bind(col_idx, std::get<std::string>(result));
