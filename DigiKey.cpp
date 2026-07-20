@@ -13,7 +13,8 @@ DigiKey::DigiKey(std::shared_ptr<ThreadPool> pool, std::shared_ptr<Database> db)
 		for(auto &&row:SQLite::Statement{*db, "SELECT id, name FROM parameters;"}) {
 			const int id = row.getColumn(0);
 			const std::string name = row.getColumn(1);
-			parameters.emplace(id, Parameter{id, name, Parameter::TYPE_TEXT});
+			auto emp = parameters.emplace(id, Parameter{id, name});
+			emp.first->second.update_filters_from_db(db);
 		}
 }
 
@@ -167,7 +168,7 @@ void DigiKey::reprocess_api_search_results(long since) {
 		parameters.clear();
 		
 		// Generate all special parameter tables
-		SpecialParameter::gen_tables(db);
+		SpecialParameter::gen_tables(db, parameters);
 		
 		// Load all previous json
 		SQLite::Statement query{*db, "SELECT json FROM keywordsearch_json WHERE time > ?"};
@@ -179,9 +180,23 @@ void DigiKey::reprocess_api_search_results(long since) {
 		}
 		
 		transaction.commit();
+		
+		reprocess_parameters();
 	});
-	
-	// TODO: determine and run parsers
+}
+
+void DigiKey::reprocess_parameters() {
+	pool->run([&](ThreadPool::Thread &t) {
+		t.job = "Processing applicable filters";
+		
+		std::unique_lock<std::mutex> lock(db->mutex);
+		SQLite::Transaction transaction(*db);
+		
+		for(auto &param:parameters)
+			param.second.reprocess_parameters(db);
+		
+		transaction.commit();
+	});
 }
 
 void DigiKey::process_api_search_result(const json &j) {
@@ -233,33 +248,3 @@ void DigiKey::clear_api_cache() {
 		db->exec("DELETE FROM keywordsearch_json;");
 	});
 }
-
-/*
-
-table of json shit
-	autoincrement id, time, text
-	
-for each parameter (including mpn, manufacturer, tariff, etc)
-	part id, text value (other stuff is shit), post processed cols
-	
-dkpn table
-	each dkpn gets unique id
-	dkpn id, dkpn, part id
-pricing table
-	dkpn id, moq, unitprice
-	
-mfr table
-	mfr id, name
-packaging table
-	package id, name
-	
-parameter table
-	parameter id (in name of parameter tables), name, parser/filter objects
-	include hardcoded values (negative?) for stuff dk doesn't call parameters
-category table (already have)
-	category id, list of parameter ids
-
-image cache
-
-*/
-

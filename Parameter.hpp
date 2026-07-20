@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Database.hpp"
+#include "ParamFilter.hpp"
 
 #include <nlohmann/json.hpp>
 #include <SQLiteCpp/SQLiteCpp.h>
@@ -11,34 +12,27 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <vector>
 
 // A parameter that can be filtered by
 struct Parameter {
-	enum param_type {
-		TYPE_BOOL,
-		TYPE_INT,
-		TYPE_REAL,
-		TYPE_TEXT
-	};
-	
-	Parameter(int id, std::string name, param_type type);
+	Parameter(int id, std::string name);
 	virtual ~Parameter() = default;
 	
-	param_type type;
-	
-	using parse_variant = std::variant<int, float, std::string>;
-	virtual parse_variant parse(const nlohmann::json &j) const;
+	virtual std::string parse(const nlohmann::json &j) const;
 	
 	virtual int insert(std::shared_ptr<Database> db, const nlohmann::json &j, std::optional<int> part_id = {}) const;
 	
 	void update_filters_from_db(std::shared_ptr<Database> db);
+	void reprocess_parameters(std::shared_ptr<Database> db);
+	
+	std::string name;
+	int id;
+	std::vector<const ParamFilter*> filters;
 	
 	// Load normal parameters into db
 	// Maintain list of parameter objects
 	static void load(std::shared_ptr<Database> db, const nlohmann::json &j, std::map<int, Parameter> &param_list);
-	
-	std::string name;
-	int id;
 	
 	static int get_part_id(const nlohmann::json &j);
 	static void create_parameter_table(std::shared_ptr<Database> db, int id, std::string name = {});
@@ -48,16 +42,16 @@ struct Parameter {
 
 // A parameter that DigiKey doesn't call a parameter but is a parameter
 struct SpecialParameter: public Parameter {
-	using accessor_func = std::function<parse_variant(const nlohmann::json&)>;
+	using accessor_func = std::function<std::string(const nlohmann::json&)>;
 	using accessor_t = std::variant<nlohmann::json::json_pointer, accessor_func>;
 	const accessor_t accessor;
 	
-	SpecialParameter(int id, std::string name, param_type type, accessor_t accessor);
+	SpecialParameter(int id, std::string name, accessor_t accessor);
 	
-	virtual parse_variant parse(const nlohmann::json &j) const override;
+	virtual std::string parse(const nlohmann::json &j) const override;
 	
 	// Generate database tables for special parameters
-	static void gen_tables(std::shared_ptr<Database> db);
+	static void gen_tables(std::shared_ptr<Database> db, std::map<int, Parameter> &param_list);
 	
 	// Load special parameters into db
 	static void load(std::shared_ptr<Database> db, const nlohmann::json &j);

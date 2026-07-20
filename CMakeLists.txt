@@ -89,6 +89,7 @@ add_executable(Analog-Key
 	Database.cpp
 	GUI.cpp
 	Parameter.cpp
+	ParamFilter.cpp
 )
 
 target_include_directories(Analog-Key PRIVATE

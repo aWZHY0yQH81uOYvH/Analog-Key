@@ -17,7 +17,8 @@ int main() {
 // 	gui->run();
 // 	slow->update_category(402); // "foil connectors" only 33 items
 // 	slow->update_category(687, 0, 50); // opamps
-	slow->reprocess_api_search_results();
+// 	slow->reprocess_api_search_results();
+	slow->reprocess_parameters();
 
 	pool->await_jobs();
 

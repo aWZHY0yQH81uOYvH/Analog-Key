@@ -23,6 +23,9 @@ public:
 	// Reprocess all collected json responses and update internal db
 	void reprocess_api_search_results(long since = 0);
 	
+	// Re-parse parameters
+	void reprocess_parameters();
+	
 	// Remove all cached json search responses
 	void clear_api_cache();
 	

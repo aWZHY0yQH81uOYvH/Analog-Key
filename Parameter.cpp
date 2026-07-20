@@ -7,17 +7,17 @@
 using nlohmann::json;
 
 std::multimap<std::string, SpecialParameter> SpecialParameter::sp_list{
-	{"compare",       {-1, "DKPN",         TYPE_TEXT, "/value/productNumber"_json_pointer           }},
-	{"productDetail", {-2, "MPN",          TYPE_TEXT, "/value/productNumber"_json_pointer           }},
-	{"productDetail", {-3, "Manufacturer", TYPE_TEXT, "/value/manufacturer/value/label"_json_pointer}},
-	{"productDetail", {-4, "Datasheet",    TYPE_TEXT, "/value/datasheetUrl"_json_pointer            }},
-	{"productDetail", {-5, "Description",  TYPE_TEXT, "/value/description"_json_pointer             }},
-	{"productDetail", {-6, "Photo",        TYPE_TEXT, "/value/image/thumb"_json_pointer             }},
-	{"productDetail", {-7, "URL",          TYPE_TEXT, "/value/detailUrl"_json_pointer               }},
-	{"qtyAvailable",  {-8, "Available",    TYPE_TEXT, "/value/0/quantity"_json_pointer              }}
+	{"compare",       {-1, "DKPN",         "/value/productNumber"_json_pointer           }},
+	{"productDetail", {-2, "MPN",          "/value/productNumber"_json_pointer           }},
+	{"productDetail", {-3, "Manufacturer", "/value/manufacturer/value/label"_json_pointer}},
+	{"productDetail", {-4, "Datasheet",    "/value/datasheetUrl"_json_pointer            }},
+	{"productDetail", {-5, "Description",  "/value/description"_json_pointer             }},
+	{"productDetail", {-6, "Photo",        "/value/image/thumb"_json_pointer             }},
+	{"productDetail", {-7, "URL",          "/value/detailUrl"_json_pointer               }},
+	{"qtyAvailable",  {-8, "Available",    "/value/0/quantity"_json_pointer              }}
 };
 
-Parameter::Parameter(int id, std::string name, param_type type): type(type), name(name), id(id) {}
+Parameter::Parameter(int id, std::string name): name(name), id(id) {}
 
 int Parameter::insert(std::shared_ptr<Database> db, const json &j, std::optional<int> part_id) const {
 	SQLite::Statement insert{*db, std::format("INSERT OR REPLACE INTO {} (part_id, val) VALUES (?, ?) RETURNING part_id;", id_to_table(id))};
@@ -25,18 +25,8 @@ int Parameter::insert(std::shared_ptr<Database> db, const json &j, std::optional
 	else insert.bind(1);
 		
 	auto parsed = parse(j);
-	switch(type) {
-		case TYPE_BOOL:
-		case TYPE_INT:
-			insert.bind(2, std::get<int>(parsed));
-			break;
-		case TYPE_REAL:
-			insert.bind(2, std::get<float>(parsed));
-			break;
-		case TYPE_TEXT:
-			insert.bind(2, std::get<std::string>(parsed));
-			break;
-	};
+	insert.bind(2, parsed);
+	
 	insert.executeStep();
 	int ret = insert.getColumn(0);
 	insert.reset();
@@ -48,13 +38,127 @@ void Parameter::update_filters_from_db(std::shared_ptr<Database> db) {
 	stmt.bind(1, id);
 	if(stmt.executeStep()) {
 		json j = json::parse(stmt.getColumn(0).getString());
-		for(auto &filter:j)
-			; // TODO: something with filter names
+		for(auto &filter:j) {
+			auto filter_it = ParamFilter::all_filters.find(filter);
+			if(filter_it != ParamFilter::all_filters.end())
+				filters.push_back(filter_it->second.get());
+		}
 	}
 }
 
-Parameter::parse_variant Parameter::parse(const nlohmann::json &j) const {
-	assert(type == TYPE_TEXT);
+void Parameter::reprocess_parameters(std::shared_ptr<Database> db) {
+	const std::string table = id_to_table(id);
+	SQLite::Statement query{*db, std::format("SELECT part_id, val FROM {};", table)};
+	filters.clear();
+	
+	// Count how many values each filter can successfully parse
+	std::vector<int> success(ParamFilter::all_filters.size(), 0);
+	int count = 0;
+	const int limit = 10000;
+	for(auto &&row:query) {
+		if(count++ >= limit)
+			break;
+		
+		std::string value = row.getColumn(1);
+		
+		for(int i = 0; auto &[_, filter]:ParamFilter::all_filters) {
+			for(auto &result:filter->parse(value))
+				if(result.has_value()) {
+					success[i]++;
+					break;
+				}
+			i++;
+		}
+	}
+	query.reset();
+	
+	if(count == 0) return;
+	
+	// Determine what columns we already have
+	std::string query_cols;
+	std::map<std::string, ParamFilter::param_type> columns;
+	for(auto &&row:SQLite::Statement{*db, std::format("SELECT name, type FROM pragma_table_info('{}');", table)})
+		columns.emplace(row.getColumn(0), ParamFilter::str2type(row.getColumn(1)));
+	
+	// For each filter that successfully parses this data, create its relevant columns
+	const float threshold = 0.5;
+	for(int i = 0; auto &[name, filter]:ParamFilter::all_filters) {
+		// Skip filters that don't parse this data well
+		if(success[i++] < count * threshold)
+			continue;
+		
+		// Prepend filter name to its required column names
+		auto required_cols = filter->columns;
+		for(auto &col:required_cols)
+			col.first = name + "_" + col.first;
+		
+		// Create required columns
+		for(auto &col:required_cols) {
+			// Build insert statement strings
+			if(!query_cols.empty())
+				query_cols += ',';
+			query_cols += col.first + "=?";
+			
+			// Check if column exists
+			auto col_it = columns.find(col.first);
+			bool exists = (col_it != columns.end());
+			
+			// Check if the type has changed
+			if(exists && col_it->second != col.second) {
+				db->exec(std::format("ALTER TABLE {} DROP COLUMN {};", table, col.first));
+				exists = false;
+			}
+			
+			if(!exists) {
+				columns[col.first] = col.second;
+				db->exec(std::format("ALTER TABLE {} ADD COLUMN {} {};", table, col.first, ParamFilter::type2str(col.second)));
+			}
+		}
+		
+		filters.push_back(filter.get());
+	}
+	
+	if(query_cols.empty())
+		return;
+	
+	// Parse all data
+	SQLite::Statement insert_stmt{*db, std::format("UPDATE {} SET {} WHERE part_id=?;", table, query_cols)};
+	for(auto &&row:query) {
+		int id = row.getColumn(0);
+		std::string value = row.getColumn(1);
+		
+		int col_idx = 1;
+		for(auto *filter:filters) {
+			for(size_t i = 0; i < filter->columns.size(); i++) {
+				auto results = filter->parse(value);
+				if(i < results.size() && results[i].has_value()) {
+					auto &result = results[i].value();
+					switch(filter->columns[i].second) {
+						case ParamFilter::TYPE_INT:
+							insert_stmt.bind(col_idx, std::get<int>(result));
+							break;
+						case ParamFilter::TYPE_REAL:
+							insert_stmt.bind(col_idx, std::get<float>(result));
+							break;
+						case ParamFilter::TYPE_TEXT:
+							insert_stmt.bind(col_idx, std::get<std::string>(result));
+							break;
+						default:
+							insert_stmt.bind(col_idx);
+							assert(0);
+					}
+				} else insert_stmt.bind(col_idx);
+				col_idx++;
+			}
+		}
+		
+		insert_stmt.bind(col_idx, id);
+		insert_stmt.exec();
+		insert_stmt.reset();
+	}
+}
+
+std::string Parameter::parse(const nlohmann::json &j) const {
 	return j["value"]["value"].get<std::string>();
 }
 
@@ -79,7 +183,7 @@ void Parameter::load(std::shared_ptr<Database> db, const nlohmann::json &product
 			else create_parameter_table(db, id);
 			check.reset();
 			
-			param_it = param_list.emplace(id, Parameter{id, name, Parameter::TYPE_TEXT}).first;
+			param_it = param_list.emplace(id, Parameter{id, name}).first;
 			param_it->second.update_filters_from_db(db);
 		}
 		
@@ -114,11 +218,12 @@ void Parameter::create_parameter_table(std::shared_ptr<Database> db, int id, std
 	insert_param.reset();
 }
 
-SpecialParameter::SpecialParameter(int id, std::string name, param_type type, accessor_t accessor): Parameter(id, name, type), accessor(accessor) {}
+SpecialParameter::SpecialParameter(int id, std::string name, accessor_t accessor): Parameter(id, name), accessor(accessor) {}
 
-void SpecialParameter::gen_tables(std::shared_ptr<Database> db) {
+void SpecialParameter::gen_tables(std::shared_ptr<Database> db, std::map<int, Parameter> &param_list) {
 	for(auto &sp_pair:sp_list) {
 		auto &sp = sp_pair.second;
+		param_list.emplace(sp.id, sp);
 		create_parameter_table(db, sp.id, sp.name);
 	}
 }
@@ -135,19 +240,10 @@ void SpecialParameter::load(std::shared_ptr<Database> db, const json &product) {
 	}
 }
 
-Parameter::parse_variant SpecialParameter::parse(const nlohmann::json &j) const {
+std::string SpecialParameter::parse(const nlohmann::json &j) const {
 	if(auto *ptr = std::get_if<json::json_pointer>(&accessor)) {
 		auto &jj = j[*ptr];
-		switch(type) {
-			case TYPE_BOOL:
-				return jj.get<bool>();
-			case TYPE_INT:
-				return jj.get<int>();
-			case TYPE_REAL:
-				return jj.get<float>();
-			case TYPE_TEXT:
-				return jj.get<std::string>();
-		}
+		return jj.get<std::string>();
 	}
 	else return std::get<accessor_func>(accessor).operator()(j);
 }
